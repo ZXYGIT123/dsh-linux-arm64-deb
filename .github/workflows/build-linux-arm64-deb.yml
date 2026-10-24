@@ -1,0 +1,157 @@
+name: Build DeepSeek Harness Linux arm64 deb
+
+# Builds the official DeepSeek Harness desktop shell from a pinned upstream tag
+# with a small Linux port overlay, then packages it as a Debian arm64 package.
+#
+# The runner is GitHub's free native arm64 Ubuntu 24.04 image: the payload is
+# built for the same (linux/arm64) target it will run on, so no cross-compilation
+# of Electron, Node, Python wheels or native addons is involved.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'Upstream deepseek-ai/deepseek-harness tag or commit to build'
+        type: string
+        required: false
+        default: 'dsh-v0.2.1-rc.3'
+      skip_smoke:
+        description: 'Skip installing and launching the built deb (debug only)'
+        type: boolean
+        required: false
+        default: false
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-linux-arm64-deb-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  build-deb:
+    name: Build linux-arm64 deb
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 300
+    steps:
+      - name: Checkout builder repository
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: ${{ inputs.upstream_ref || 'dsh-v0.2.1-rc.3' }}
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Report host facts
+        run: |
+          uname -a
+          nproc
+          free -h
+          df -h /
+          node --version || true
+
+      - name: Free disk space
+        run: bash scripts/free-disk.sh
+
+      - name: Apply the Linux arm64 port
+        run: node scripts/apply-linux-overlay.mjs upstream
+
+      - name: Install build toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb x11-utils imagemagick ca-certificates curl git \
+            build-essential python3 pkg-config libc6-dev \
+            libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libxss1 libxtst6 \
+            libatk-bridge2.0-0t64 libatk1.0-0t64 libcups2t64 libdrm2 libxkbcommon0 \
+            libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 \
+            libcairo2 libsecret-1-0 libnotify4 fonts-noto-cjk
+
+      - name: Install Node.js and pnpm
+        run: |
+          node --version
+          npm install -g pnpm@11.28.5
+          pnpm --version || true
+
+      - name: pnpm install (upstream workspace)
+        working-directory: upstream
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and package unsigned unpacked Linux app
+        working-directory: upstream
+        run: |
+          xvfb-run -a -s "-screen 0 1440x900x24" \
+            pnpm --filter @deepseek-ai/dsh-desktop run package:dir linux-arm64 --unsigned
+
+      - name: Locate the packaged application
+        run: |
+          set -euo pipefail
+          APP_DIR="upstream/apps/desktop/.desktop-build/targets/linux-arm64/unsigned-artifacts/linux-arm64-unpacked"
+          test -d "$APP_DIR"
+          ls -la "$APP_DIR" | head -40
+          test -x "$APP_DIR/deepseek-harness"
+          du -sh "$APP_DIR"
+          echo "DSH_APP_DIR=$APP_DIR" >> "$GITHUB_ENV"
+
+      - name: Resolve package version
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./upstream/package.json').version.replace(/-/g, '~')")"
+          echo "DSH_PKG_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "package version: $VERSION"
+
+      - name: Assemble the .deb
+        run: |
+          set -euo pipefail
+          bash packaging/build-deb.sh \
+            --app-dir "$DSH_APP_DIR" \
+            --version "$DSH_PKG_VERSION" \
+            --arch arm64 \
+            --output dist \
+            --icon packaging/icons/deepseek-harness.png
+
+      - name: Verify the .deb structure
+        run: python3 tools/verify_deb.py dist/*.deb
+
+      - name: Install and launch smoke test
+        if: ${{ !inputs.skip_smoke }}
+        run: bash scripts/ci-smoke-test.sh dist/*.deb
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deepseek-harness-linux-arm64-deb
+          path: dist/*.deb
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload smoke-test evidence
+        if: ${{ always() && !inputs.skip_smoke }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-evidence
+          path: |
+            evidence/**
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-logs
+          path: |
+            evidence/**
+            upstream/apps/desktop/.desktop-build/packaging-runs/**
+          if-no-files-found: warn
+          retention-days: 7
