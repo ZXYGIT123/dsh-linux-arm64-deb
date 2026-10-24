@@ -69,7 +69,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             xvfb x11-utils imagemagick ca-certificates curl git \
-            build-essential python3 pkg-config libc6-dev \
+            build-essential python3 pkg-config libc6-dev zstd xdg-utils dbus-x11 \
             libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libxss1 libxtst6 \
             libatk-bridge2.0-0t64 libatk1.0-0t64 libcups2t64 libdrm2 libxkbcommon0 \
             libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 \
