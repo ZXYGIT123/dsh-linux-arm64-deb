@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=DeepSeek Harness
+GenericName=AI Development Harness
+Comment=DeepSeek Harness desktop application with a bundled runtime
+Exec=/usr/bin/@@PACKAGE_NAME@@ %U
+TryExec=/usr/bin/@@PACKAGE_NAME@@
+Icon=@@PACKAGE_NAME@@
+Terminal=false
+StartupNotify=true
+StartupWMClass=@@PACKAGE_NAME@@
+Categories=Development;Utility;
+Keywords=deepseek;harness;ai;agent;
+MimeType=x-scheme-handler/dsh;
+X-GNOME-UsesNotifications=true
