@@ -463,7 +463,7 @@ esac
 [ -d "$APP_DIR" ] || die "app directory does not exist: $APP_DIR"
 APP_DIR=$(CDPATH= cd -- "$APP_DIR" && pwd -P) || die "cannot enter app directory"
 
-for tool in dpkg-deb find cp chmod touch gzip du md5sum sed sort xargs cut tr date awk mktemp; do
+for tool in dpkg-deb find cp chmod touch gzip du md5sum sed sort xargs cut tr date awk mktemp ln; do
   require_command "$tool"
 done
 
@@ -635,6 +635,23 @@ sed -e "s|@@PACKAGE_NAME@@|$PACKAGE_ESC|g" \
 chmod 0644 "$STAGE/usr/share/applications/$PACKAGE_NAME.desktop"
 if grep -q '@@' "$STAGE/usr/share/applications/$PACKAGE_NAME.desktop"; then
   die "desktop entry still contains unsubstituted @@ placeholders"
+fi
+
+# The desktop package also ships the bundled `dsh` command line. Its launcher
+# lives in the application payload; expose it on PATH with a package-owned
+# symlink (dpkg removes it on uninstall, postrm has nothing to undo).
+CLI_RELPATH="resources/runtime/cli/bin/dsh"
+CLI_LAUNCHER="$APP_STAGE/$CLI_RELPATH"
+CLI_TARGET="/opt/$PACKAGE_NAME/$CLI_RELPATH"
+if [ ! -f "$CLI_LAUNCHER" ]; then
+  die "bundled CLI launcher is missing: $CLI_RELPATH (the packaged runtime must provide 'dsh'; README/CI promise 'dsh --help')"
+fi
+chmod 0755 "$CLI_LAUNCHER" || die "cannot make the bundled dsh launcher executable"
+ln -s "$CLI_TARGET" "$STAGE/usr/bin/dsh" || die "cannot create the /usr/bin/dsh symlink"
+if [ -L "$STAGE/usr/bin/dsh" ]; then
+  log "installed /usr/bin/dsh -> $CLI_TARGET"
+else
+  warn "staging filesystem did not create a real symlink for /usr/bin/dsh"
 fi
 
 resize_icon "$ICON_SOURCE" \
