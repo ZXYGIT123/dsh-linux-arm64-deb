@@ -246,6 +246,39 @@ export function localLinuxPackageEnvironment(environment = process.env) {
     ],
   },
 
+  // ---- apps/desktop/scripts/desktop-upload-plan.ts -------------------------
+  // The upload plan is keyed by the fixed target-name union; the Linux target never uploads,
+  // but the record must stay exhaustive for the aggregate type check.
+  {
+    file: 'apps/desktop/scripts/desktop-upload-plan.ts',
+    edits: [
+      {
+        why: 'keep the fixed-target upload plan exhaustive after adding linux-arm64',
+        find: `  'win-x64': { platform: 'win32', arch: 'x64', os: 'win' },
+} as const satisfies Record<DesktopPackageTargetName, {`,
+        replace: `  'win-x64': { platform: 'win32', arch: 'x64', os: 'win' },
+  'linux-arm64': { platform: 'linux', arch: 'arm64', os: 'linux' },
+} as const satisfies Record<DesktopPackageTargetName, {`,
+      },
+    ],
+  },
+
+  // ---- apps/desktop/scripts/retain-desktop-ci.ts ---------------------------
+  {
+    file: 'apps/desktop/scripts/retain-desktop-ci.ts',
+    edits: [
+      {
+        why: 'retention only understands the published macOS/Windows targets',
+        find: `  const target = resolveDesktopBuildTarget(env)
+  const windows = target === 'win-x64'`,
+        replace: `  const target = resolveDesktopBuildTarget(env)
+  // The Linux community build publishes no update feed, so it has nothing to retain.
+  if (target === 'linux-arm64') throw new Error('desktop retention: linux-arm64 has no updater release to retain')
+  const windows = target === 'win-x64'`,
+      },
+    ],
+  },
+
   // ---- apps/desktop/scripts/electron-builder-config.mjs --------------------
   {
     file: 'apps/desktop/scripts/electron-builder-config.mjs',
