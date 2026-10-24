@@ -1,0 +1,15 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: DeepSeek Harness
+Source: @@HOMEPAGE@@
+
+Files: *
+Copyright: DeepSeek and the DeepSeek Harness contributors
+License: other
+ This Debian package is an unofficial community build assembled from the
+ official DeepSeek Harness desktop distribution. It contains the upstream
+ Electron application, the bundled dsh runtime and their third-party
+ dependencies.
+ .
+ Refer to the upstream repository and to the license files shipped with the
+ Electron runtime (LICENSE, LICENSES.chromium.html) for the complete license
+ texts that apply to the bundled components.
