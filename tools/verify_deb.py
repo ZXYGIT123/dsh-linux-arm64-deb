@@ -1197,12 +1197,25 @@ def check_maintainer_scripts(control_entries, report):
                 report.warn(
                     "maintainer scripts: postinst does not call update-desktop-database"
                 )
+            if "xdg-mime default" in text and "x-scheme-handler/dsh" in text:
+                report.ok("maintainer scripts: postinst registers the dsh:// handler")
+            else:
+                report.fail(
+                    "maintainer scripts: postinst does not register the dsh:// handler",
+                    "expected 'xdg-mime default ... x-scheme-handler/dsh'",
+                )
+            if "command -v xdg-mime" in text:
+                report.ok("maintainer scripts: postinst tolerates missing xdg-mime")
+            else:
+                report.warn(
+                    "maintainer scripts: postinst does not guard the xdg-mime call"
+                )
         if name == "postrm" and "purge" in text:
             report.ok("maintainer scripts: postrm implements purge cleanup")
         report.ok("maintainer scripts: %s looks valid" % name)
 
 
-def check_payload_layout(args, payload_files, payload_dirs, report):
+def check_payload_layout(args, payload_files, payload_dirs, symlinks, report):
     report.section("payload")
     package = args.package
     app_prefix = "opt/%s/" % package
@@ -1305,6 +1318,70 @@ def check_payload_layout(args, payload_files, payload_dirs, report):
         else:
             report.fail("payload: launcher mode must be 0755", "found %o" % launcher.mode)
 
+    # The deb must expose the bundled dsh CLI as /usr/bin/dsh. The launcher in
+    # the app payload is a shell script that re-executes the Electron binary in
+    # Node mode, and the package-owned symlink keeps it on PATH after install.
+    cli_relpath = "resources/runtime/cli/bin/dsh"
+    cli_path = app_prefix + cli_relpath
+    cli_entry = payload_files.get(cli_path)
+    if cli_entry is None:
+        report.fail("payload: bundled dsh CLI launcher is missing", cli_path)
+    else:
+        text = cli_entry.content.decode("utf-8", "replace") if cli_entry.content else ""
+        if cli_entry.mode & 0o111:
+            report.ok("payload: bundled dsh CLI launcher is executable")
+        else:
+            report.fail(
+                "payload: bundled dsh CLI launcher is not executable",
+                oct(cli_entry.mode),
+            )
+        if text.startswith("#!"):
+            report.ok("payload: bundled dsh CLI launcher has a shebang")
+        else:
+            report.fail("payload: bundled dsh CLI launcher has no shebang")
+        if "ELECTRON_RUN_AS_NODE=1" in text or "ELECTRON_RUN_AS_NODE" in text:
+            report.ok("payload: bundled dsh CLI runs Electron in Node mode")
+        else:
+            report.fail(
+                "payload: bundled dsh CLI does not set ELECTRON_RUN_AS_NODE"
+            )
+        if "app.asar" in text and "cli.js" in text:
+            report.ok("payload: bundled dsh CLI points at the Host CLI entrypoint")
+        else:
+            report.fail("payload: bundled dsh CLI does not reference the CLI entrypoint")
+
+    dsh_target = "/opt/%s/%s" % (package, cli_relpath)
+    dsh_link = symlinks.get("usr/bin/dsh")
+    if dsh_link is None:
+        if "usr/bin/dsh" in payload_files:
+            report.fail(
+                "payload: /usr/bin/dsh must be a symlink",
+                "found a regular file",
+            )
+        else:
+            report.fail(
+                "payload: /usr/bin/dsh symlink is missing",
+                "expected -> %s" % dsh_target,
+            )
+    else:
+        if dsh_link == dsh_target:
+            report.ok("payload: /usr/bin/dsh -> %s" % dsh_target)
+        else:
+            report.fail(
+                "payload: /usr/bin/dsh has the wrong target",
+                "%r != %r" % (dsh_link, dsh_target),
+            )
+        if dsh_link.startswith("/"):
+            resolved = dsh_link.lstrip("/")
+        else:
+            resolved = os.path.normpath(
+                os.path.join("usr/bin", dsh_link)
+            ).replace(os.sep, "/")
+        if resolved in payload_files:
+            report.ok("payload: /usr/bin/dsh target exists in the package")
+        else:
+            report.fail("payload: /usr/bin/dsh target is not in the package", dsh_link)
+
     doc_prefix = "usr/share/doc/%s/" % package
     for name, minimum in (("copyright", 1), ("changelog.Debian.gz", 1)):
         path = doc_prefix + name
@@ -1358,6 +1435,7 @@ def check_payload_layout(args, payload_files, payload_dirs, report):
             doc_prefix + "changelog.Debian.gz",
             "usr/share/icons/hicolor/256x256/apps/%s.png" % package,
             "usr/share/icons/hicolor/512x512/apps/%s.png" % package,
+            app_prefix + "resources/runtime/cli/bin/dsh",
         ):
             continue
         report.warn("payload: unexpected file outside the standard layout", name)
@@ -1751,6 +1829,7 @@ def verify(args):
             "usr/share/doc/%s/changelog.Debian.gz" % package,
             "usr/share/icons/hicolor/256x256/apps/%s.png" % package,
             "usr/share/icons/hicolor/512x512/apps/%s.png" % package,
+            "opt/%s/resources/runtime/cli/bin/dsh" % package,
         }
         payload_files, payload_dirs, symlinks = scan_payload_tar(
             data_tar_path, wanted, report
@@ -1767,7 +1846,7 @@ def verify(args):
             )
         )
 
-        check_payload_layout(args, payload_files, payload_dirs, report)
+        check_payload_layout(args, payload_files, payload_dirs, symlinks, report)
         check_desktop_entry(args, payload_files, report)
         check_icons(args, payload_files, report)
         check_elf(args, payload_files, report)
