@@ -1,0 +1,29 @@
+#!/bin/sh
+# dpkg post-installation script for @@PACKAGE_NAME@@.
+set -e
+
+APP_DIR="/opt/@@PACKAGE_NAME@@"
+SANDBOX="$APP_DIR/chrome-sandbox"
+
+# dpkg extracts the setuid helper with the packaged owner/mode, but a restrictive
+# umask or an unusual unpack tool can drop the setuid bit. Restore the exact
+# permissions Chromium's sandbox requires, but never fail the installation if the
+# file is absent (for example on builds without the setuid helper).
+if [ -f "$SANDBOX" ]; then
+  chown root:root "$SANDBOX" 2>/dev/null || true
+  chmod 4755 "$SANDBOX" 2>/dev/null || true
+fi
+
+# Refresh desktop and icon caches when the tools exist. Minimal containers often
+# do not have them, and a missing cache tool must never abort an installation.
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database -q /usr/share/applications >/dev/null 2>&1 || true
+fi
+if command -v update-mime-database >/dev/null 2>&1; then
+  update-mime-database /usr/share/mime >/dev/null 2>&1 || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
+fi
+
+exit 0
