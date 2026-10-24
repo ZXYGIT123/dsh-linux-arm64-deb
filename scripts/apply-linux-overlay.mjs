@@ -170,6 +170,48 @@ export function localLinuxPackageEnvironment(environment = process.env) {
     ],
   },
 
+  // ---- apps/desktop/scripts/prepare-dsh.ts (Office engine probe) ----------
+  // Electron's ASAR filesystem returns null from lstatSync({throwIfNoEntry:false}) instead of
+  // the documented undefined, so LibreOfficeKit's presence probe reports an absent Linux
+  // engine as "installed but incomplete" and aborts every conversion. Restoring Node's
+  // semantics lets the resolver fall back to the bundled WASM engine, as upstream intends
+  // for Linux. See analysis/port-report.md.
+  {
+    file: 'apps/desktop/scripts/prepare-dsh.ts',
+    edits: [
+      {
+        why: 'patch the installed LibreOfficeKit lstat presence probe for ASAR semantics',
+        find: `function manifestVersion(path: string, subject: string): string {`,
+        replace: `/**
+ * Electron's ASAR filesystem returns null (not undefined) from lstatSync({ throwIfNoEntry: false }),
+ * which makes LibreOfficeKit treat an absent Linux engine package as installed-but-incomplete and
+ * abort every conversion. Restore the documented Node semantics so the resolver falls back to the
+ * bundled WASM engine, which is the engine LibreOfficeKit ships for Linux by default.
+ * @param modules - Installed production node_modules directory.
+ */
+function patchOfficeEngineProbe(modules: string): void {
+  const file = join(modules, '@deepseek-ai', 'libreoffice-kit', 'lib', 'index.js')
+  const source = readFileSync(file, 'utf8')
+  const probe = 'lstatSync(join(directory, name), { throwIfNoEntry: false }) !== void 0'
+  if (source.split(probe).length - 1 !== 1) {
+    throw new Error('desktop runtime: LibreOfficeKit engine probe changed; refusing to patch the installed package')
+  }
+  writeFileSync(file, source.replace(probe, 'lstatSync(join(directory, name), { throwIfNoEntry: false }) != null'))
+}
+
+function manifestVersion(path: string, subject: string): string {`,
+      },
+      {
+        why: 'apply the probe fix to the freshly installed runtime before materializing it',
+        find: `    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:install', () => runPnpm(['install', '--prod', '--frozen-lockfile', '--trust-lockfile']))`,
+        replace: `    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:install', () => runPnpm(['install', '--prod', '--frozen-lockfile', '--trust-lockfile']))
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:office-engine-probe', async () => {
+      patchOfficeEngineProbe(join(BUILD_ROOT, 'node_modules'))
+    })`,
+      },
+    ],
+  },
+
   // ---- apps/desktop/scripts/prepare-dsh.ts ---------------------------------
   {
     file: 'apps/desktop/scripts/prepare-dsh.ts',
