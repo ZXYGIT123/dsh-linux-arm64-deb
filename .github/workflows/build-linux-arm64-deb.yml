@@ -58,6 +58,17 @@ jobs:
           df -h /
           node --version || true
 
+      - name: Reject CRLF line endings in build files
+        run: |
+          set -euo pipefail
+          offenders="$(grep -rIl --exclude-dir=.git --exclude-dir=evidence --exclude-dir=dist $'\r' scripts packaging tools .github README.md || true)"
+          if [ -n "$offenders" ]; then
+            echo "These files must use LF line endings (bash treats CR as data):" >&2
+            echo "$offenders" >&2
+            exit 1
+          fi
+          echo "all build files use LF line endings"
+
       - name: Free disk space
         run: bash scripts/free-disk.sh
 
@@ -121,10 +132,6 @@ jobs:
       - name: Verify the .deb structure
         run: python3 tools/verify_deb.py dist/*.deb
 
-      - name: Install and launch smoke test
-        if: ${{ !inputs.skip_smoke }}
-        run: bash scripts/ci-smoke-test.sh dist/*.deb
-
       - name: Upload deb artifact
         uses: actions/upload-artifact@v4
         with:
@@ -132,6 +139,10 @@ jobs:
           path: dist/*.deb
           if-no-files-found: error
           retention-days: 30
+
+      - name: Install and launch smoke test
+        if: ${{ !inputs.skip_smoke }}
+        run: bash scripts/ci-smoke-test.sh dist/*.deb
 
       - name: Upload smoke-test evidence
         if: ${{ always() && !inputs.skip_smoke }}
