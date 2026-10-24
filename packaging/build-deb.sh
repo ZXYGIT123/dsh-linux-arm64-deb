@@ -643,13 +643,14 @@ fi
 CLI_RELPATH="resources/runtime/cli/bin/dsh"
 CLI_LAUNCHER="$APP_STAGE/$CLI_RELPATH"
 CLI_TARGET="/opt/$PACKAGE_NAME/$CLI_RELPATH"
+CLI_LINK_TARGET="../../opt/$PACKAGE_NAME/$CLI_RELPATH"
 if [ ! -f "$CLI_LAUNCHER" ]; then
   die "bundled CLI launcher is missing: $CLI_RELPATH (the packaged runtime must provide 'dsh'; README/CI promise 'dsh --help')"
 fi
 chmod 0755 "$CLI_LAUNCHER" || die "cannot make the bundled dsh launcher executable"
-ln -s "$CLI_TARGET" "$STAGE/usr/bin/dsh" || die "cannot create the /usr/bin/dsh symlink"
+ln -s "$CLI_LINK_TARGET" "$STAGE/usr/bin/dsh" || die "cannot create the /usr/bin/dsh symlink"
 if [ -L "$STAGE/usr/bin/dsh" ]; then
-  log "installed /usr/bin/dsh -> $CLI_TARGET"
+  log "installed /usr/bin/dsh -> $CLI_LINK_TARGET (resolves to $CLI_TARGET)"
 else
   warn "staging filesystem did not create a real symlink for /usr/bin/dsh"
 fi
