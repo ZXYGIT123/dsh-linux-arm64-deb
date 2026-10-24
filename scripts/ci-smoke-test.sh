@@ -95,13 +95,17 @@ start_app() {
 log "launch application"
 if ! start_app default; then
   echo "default launch exited early; retrying with --no-sandbox (CI container kernel restrictions)" | tee -a "$EVIDENCE/app.log"
-  ARCHIVE_LOG="$EVIDENCE/app-default.log"
-  cp "$EVIDENCE/app.log" "$ARCHIVE_LOG"
+  cp "$EVIDENCE/app.log" "$EVIDENCE/app-default.log"
   APP_GROUP=""
   if ! start_app no-sandbox --no-sandbox; then
-    echo "FAIL: application did not stay alive"
-    tail -100 "$EVIDENCE/app.log"
-    exit 1
+    echo "still not alive; retrying with software rendering flags" | tee -a "$EVIDENCE/app.log"
+    cp "$EVIDENCE/app.log" "$EVIDENCE/app-nosandbox.log"
+    APP_GROUP=""
+    if ! start_app software --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-software-rasterizer; then
+      echo "FAIL: application did not stay alive"
+      tail -120 "$EVIDENCE/app.log"
+      exit 1
+    fi
   fi
 fi
 
