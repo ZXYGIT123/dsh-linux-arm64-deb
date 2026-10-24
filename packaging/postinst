@@ -22,6 +22,15 @@ fi
 if command -v update-mime-database >/dev/null 2>&1; then
   update-mime-database /usr/share/mime >/dev/null 2>&1 || true
 fi
+
+# Make the .desktop file the default handler for dsh:// links. The desktop
+# entry already declares MimeType=x-scheme-handler/dsh, but registering the
+# default requires xdg-mime. Minimal containers may not have xdg-utils, and a
+# headless session may have no MIME database yet, so never fail the install.
+if command -v xdg-mime >/dev/null 2>&1; then
+  xdg-mime default @@PACKAGE_NAME@@.desktop x-scheme-handler/dsh >/dev/null 2>&1 || true
+fi
+
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor >/dev/null 2>&1 || true
 fi
