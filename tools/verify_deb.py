@@ -831,34 +831,6 @@ def scan_control_tar(tar_path, report):
 # ---------------------------------------------------------------------------
 
 
-def check_ar_layout(members, report):
-    """Validate the ar container and return (debian_binary, control, data)."""
-    report.section("ar container")
-    names = [member.name for member in members]
-    report.info("members: " + ", ".join(names))
-    if not members:
-        report.fail("ar: archive has no members")
-        return None, None, None
-
-    for member in members:
-        if member.mode and stat.S_IMODE(member.mode) not in (0o644, 0o100644):
-            report.warn(
-                "ar: member %r has unusual mode %o"
-                % (member.name, stat.S_IMODE(member.mode))
-            )
-
-    debian_binary = members[0]
-    if debian_binary.name != "debian-binary":
-        report.fail(
-            "ar: debian-binary must be the first member",
-            "found %r" % debian_binary.name,
-        )
-        return None, None, None
-    content = read_member_bytes("", debian_binary) if False else None  # placeholder
-    # read_member_bytes needs the deb path; the caller passes it instead.
-    return debian_binary, None, None
-
-
 def check_ar_structure(deb_path, members, report):
     """Validate member order/content; return (control_member, data_member)."""
     report.section("ar container")
@@ -909,8 +881,6 @@ def check_ar_structure(deb_path, members, report):
                 report.fail("ar: more than one data member", member.name)
             else:
                 data_index = index
-            if CONTROL_MEMBER_RE.match(members[index - 1].name) if index else False:
-                pass
             continue
         if member.name.startswith("_gpg"):
             report.info("ar: optional signature member %r" % member.name)
@@ -1001,18 +971,13 @@ def check_control_fields(control_text, args, report):
         if re.match(r"^[^<>]+<[^<>@\s]+@[^<>\s]+>$", fields["Maintainer"].strip()):
             report.ok("control: Maintainer has an e-mail address")
         else:
-            report.warn(
-                "control: Maintainer is not in 'Name <email>' form",
-                if False else "",
-            )
+            report.warn("control: Maintainer is not in 'Name <email>' form")
 
     if "Homepage" in fields:
         if fields["Homepage"].startswith(("http://", "https://")):
             report.ok("control: Homepage is an HTTP(S) URL")
         else:
-            report.warn(
-                "control: Homepage is not an HTTP(S) URL", if False else ""
-            )
+            report.warn("control: Homepage is not an HTTP(S) URL")
 
     if "Section" in fields:
         if re.match(r"^[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)?$", fields["Section"]):
@@ -1298,13 +1263,12 @@ def check_payload_layout(args, payload_files, payload_dirs, report):
             )
         if "exec " not in text:
             report.fail("payload: launcher does not exec the application binary")
+        elif launcher.mode & 0o111:
+            report.ok("payload: launcher execs the packaged application")
         if launcher.mode == 0o755:
             report.ok("payload: launcher mode is 0755")
         else:
             report.fail("payload: launcher mode must be 0755", "found %o" % launcher.mode)
-        if "id -u" in text or os.geteuid() if hasattr(os, "geteuid") else False:
-            pass
-        report.ok("payload: launcher references the packaged application")
 
     doc_prefix = "usr/share/doc/%s/" % package
     for name, minimum in (("copyright", 1), ("changelog.Debian.gz", 1)):
@@ -1493,11 +1457,8 @@ def check_elf(args, payload_files, report):
         for path, info in wrong[:20]:
             report.fail(
                 "ELF: wrong architecture for %s" % path,
-                "%d-bit %s %s" % (
-                    info["class"] * 32 if info["class"] in (1, 2) else info["class"],
-                    "LE" if info["data"] == 1 else "BE",
-                    info["machine_name"],
-                ),
+                "class=%d data=%d machine=%s"
+                % (info["class"], info["data"], info["machine_name"]),
             )
         if len(wrong) > 20:
             report.fail("ELF: %d further architecture problems" % (len(wrong) - 20))
