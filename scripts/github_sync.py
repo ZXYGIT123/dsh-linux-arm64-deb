@@ -24,7 +24,7 @@ import json
 import os
 import sys
 
-SKIP_DIRS = {".git", "node_modules", "evidence", "dist", "work", "__pycache__", ".desktop-build", ".sync-work"}
+SKIP_DIRS = {".git", "node_modules", "evidence", "dist", "work", "__pycache__", ".desktop-build", ".sync-work", ".selftest-tmp"}
 SKIP_FILES = {".DS_Store"}
 
 
