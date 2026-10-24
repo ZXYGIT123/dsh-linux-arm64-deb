@@ -246,6 +246,36 @@ export function localLinuxPackageEnvironment(environment = process.env) {
     ],
   },
 
+  // ---- scripts/libreoffice-packages.mjs ------------------------------------
+  // Linux engines are published per libc (linux-arm64-glibc / linux-arm64-musl); the
+  // plain platform-arch lookup would silently select WASM and then drop the native
+  // engine from the packaged runtime.
+  {
+    file: 'scripts/libreoffice-packages.mjs',
+    edits: [
+      {
+        why: 'select the installed Linux engine variant instead of falling back to WASM',
+        find: `export function selectOfficeEngine(manifest, target) {
+  const native = \`\${target.platform}-\${target.arch}\`
+  return Object.hasOwn(manifest.optionalDependencies ?? {}, \`@deepseek-ai/libreoffice-kit-\${native}\`) ? native : 'wasm'
+}`,
+        replace: `export function selectOfficeEngine(manifest, target) {
+  const optional = manifest.optionalDependencies ?? {}
+  const native = \`\${target.platform}-\${target.arch}\`
+  if (Object.hasOwn(optional, \`@deepseek-ai/libreoffice-kit-\${native}\`)) return native
+  if (target.platform === 'linux') {
+    // Debian/Ubuntu packages run on glibc; the native engine is preferred when the kit
+    // declares the variant, and WASM remains the portable fallback.
+    for (const variant of [\`\${native}-glibc\`, \`\${native}-musl\`]) {
+      if (Object.hasOwn(optional, \`@deepseek-ai/libreoffice-kit-\${variant}\`)) return variant
+    }
+  }
+  return 'wasm'
+}`,
+      },
+    ],
+  },
+
   // ---- apps/desktop/scripts/desktop-upload-plan.ts -------------------------
   // The upload plan is keyed by the fixed target-name union; the Linux target never uploads,
   // but the record must stay exhaustive for the aggregate type check.
