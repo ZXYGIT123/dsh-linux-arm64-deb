@@ -1,0 +1,35 @@
+#!/bin/sh
+# DeepSeek Harness launcher installed as /usr/bin/deepseek-harness.
+#
+# The Electron application lives in /opt/deepseek-harness. This wrapper exists
+# because the desktop entry and CLI users expect a binary on PATH, while the
+# Chromium/GTK stack expects a stable working directory and a usable sandbox.
+set -eu
+
+APP_DIR="@@APP_DIR@@"
+EXE_NAME="@@EXE_NAME@@"
+
+if [ ! -x "$APP_DIR/$EXE_NAME" ]; then
+  echo "deepseek-harness: $APP_DIR/$EXE_NAME is missing or not executable." >&2
+  echo "deepseek-harness: the package is probably corrupt; reinstall it with:" >&2
+  echo "  sudo apt-get install --reinstall deepseek-harness" >&2
+  exit 1
+fi
+
+# Keep the working directory next to the executable so relative resource
+# lookups used by the Electron shell and by bundled CLI tools stay stable,
+# no matter where the launcher was invoked from.
+cd "$APP_DIR"
+
+# Chromium's setuid helper (chrome-sandbox) needs root:root and mode 4755.
+# Inside containers and some hardened kernels the setuid sandbox is unusable,
+# so running as root would otherwise abort with a sandbox error. Fall back to
+# --no-sandbox only in that case; normal user launches keep the sandbox.
+if [ "$(id -u 2>/dev/null || echo 1)" = "0" ]; then
+  case " $* " in
+    *" --no-sandbox "*|*" --disable-setuid-sandbox "*) ;;
+    *) set -- --no-sandbox "$@" ;;
+  esac
+fi
+
+exec "$APP_DIR/$EXE_NAME" "$@"
