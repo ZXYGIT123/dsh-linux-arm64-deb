@@ -469,11 +469,13 @@ done
 
 # Resolve the output path: a directory unless it ends in .deb.
 case "$OUTPUT" in
+  *.deb)
+    OUT_DIR=$(dirname -- "$OUTPUT")
+    DEB_NAME=$(basename -- "$OUTPUT")
+    ;;
   *)
-    case "$OUTPUT" in
-      *.deb) OUT_DIR=$(dirname -- "$OUTPUT"); DEB_NAME=$(basename -- "$OUTPUT") ;;
-      *) OUT_DIR=$OUTPUT; DEB_NAME="${PACKAGE_NAME}_${VERSION}_${ARCH}.deb" ;;
-    esac
+    OUT_DIR=$OUTPUT
+    DEB_NAME="${PACKAGE_NAME}_${VERSION}_${ARCH}.deb"
     ;;
 esac
 [ -d "$OUT_DIR" ] || mkdir -p "$OUT_DIR" || die "cannot create output directory: $OUT_DIR"
@@ -491,7 +493,8 @@ if [ -z "$PYTHON" ]; then
   fi
 fi
 if [ -n "$PYTHON" ]; then
-  log "python: $PYTHON ($("$PYTHON" --version 2>&1))"
+  PYTHON_VERSION=$("$PYTHON" --version 2>&1 | tr -d '\r' || true)
+  log "python: $PYTHON (${PYTHON_VERSION:-unknown})"
 else
   warn "python3/python not found: falling back to ImageMagick for icon scaling"
 fi
@@ -507,7 +510,8 @@ if ! dpkg-deb --help 2>&1 | grep -q -- '--root-owner-group'; then
   warn "dpkg-deb does not support --root-owner-group; the package may not be root-owned"
   DPKG_ROOT_FLAG=""
 fi
-log "dpkg-deb version: $(dpkg-deb --version | head -n 1)"
+DPKG_VERSION=$(dpkg-deb --version 2>/dev/null | head -n 1 || true)
+log "dpkg-deb version: ${DPKG_VERSION:-unknown}"
 
 if [ ! -f "$APP_DIR/$EXE_NAME" ]; then
   die "app executable '$EXE_NAME' not found in $APP_DIR (wrong --app-dir/--exe-name?)"
