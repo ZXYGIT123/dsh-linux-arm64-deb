@@ -10,6 +10,9 @@
 | `deepseek-harness_0.2.1~rc.3_arm64.deb` | 安装包（arm64 / aarch64，Debian/Ubuntu） |
 | `smoke-test-desktop.png` | CI 内 `apt install` 后真实启动的截图（Xvfb） |
 
+> GitHub 会把资源名中的 `~` 规范为 `.`，下载到的文件名可能是 `deepseek-harness_0.2.1.rc.3_arm64.deb`；
+> `apt install` 时使用实际文件名即可。
+
 SHA-256（deb）：
 
 ```
