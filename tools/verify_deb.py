@@ -1364,19 +1364,19 @@ def check_payload_layout(args, payload_files, payload_dirs, symlinks, report):
                 "expected -> %s" % dsh_target,
             )
     else:
-        if dsh_link == dsh_target:
-            report.ok("payload: /usr/bin/dsh -> %s" % dsh_target)
-        else:
-            report.fail(
-                "payload: /usr/bin/dsh has the wrong target",
-                "%r != %r" % (dsh_link, dsh_target),
-            )
         if dsh_link.startswith("/"):
             resolved = dsh_link.lstrip("/")
         else:
             resolved = os.path.normpath(
                 os.path.join("usr/bin", dsh_link)
             ).replace(os.sep, "/")
+        if resolved == dsh_target.lstrip("/"):
+            report.ok("payload: /usr/bin/dsh -> %s" % dsh_target)
+        else:
+            report.fail(
+                "payload: /usr/bin/dsh has the wrong target",
+                "%r (resolves to %r) != %r" % (dsh_link, resolved, dsh_target),
+            )
         if resolved in payload_files:
             report.ok("payload: /usr/bin/dsh target exists in the package")
         else:
@@ -1638,9 +1638,13 @@ def check_ownership_and_mtimes(args, payload_files, payload_dirs, symlinks, repo
         report.ok("ownership: all payload files are root:root")
     if symlinks:
         unsafe = []
+        package_root = "opt/%s/" % args.package
         for name, target in symlinks.items():
             if os.path.isabs(target):
-                unsafe.append("%s -> %s (absolute)" % (name, target))
+                absolute = os.path.normpath(target).lstrip("/").replace(os.sep, "/")
+                if absolute.startswith(package_root):
+                    continue
+                unsafe.append("%s -> %s (absolute outside the package)" % (name, target))
                 continue
             joined = os.path.normpath(os.path.join(os.path.dirname(name), target))
             if joined.startswith(".."):
