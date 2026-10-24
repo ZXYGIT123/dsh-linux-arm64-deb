@@ -204,6 +204,48 @@ export function localLinuxPackageEnvironment(environment = process.env) {
     ],
   },
 
+  // ---- apps/desktop/src/main.ts -------------------------------------------
+  // Runtime-only fixes: the shell runs on Linux once packaging succeeds, but three
+  // platform assumptions make the packaged app unusable (see analysis/port-report.md).
+  {
+    file: 'apps/desktop/src/main.ts',
+    edits: [
+      {
+        why: 'never resolve a mandatory-update policy on Linux (its platform whitelist throws)',
+        find: `  const policyConfig = resolveDesktopPolicyConfig(policyInput, !app.isPackaged)`,
+        replace: `  // This build publishes no mandatory-update policy service for Linux, and the policy
+  // implementation only whitelists win32/darwin: never construct it here.
+  const policyConfig = process.platform === 'linux' ? undefined : resolveDesktopPolicyConfig(policyInput, !app.isPackaged)`,
+      },
+      {
+        why: 'hide the update-check menu entry on Linux (electron-updater has no deb feed)',
+        find: `    { label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } },`,
+        replace: `    ...process.platform === 'linux' ? [] : [{ label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } }],`,
+      },
+      {
+        why: 'skip automatic update/policy checks on Linux',
+        find: `  const automaticCheck = (): void => {
+    if (!quitting) void mandatoryPolicy?.check('foreground-or-resume').catch((error: unknown) => { console.error(error) })`,
+        replace: `  const automaticCheck = (): void => {
+    // No update feed and no policy service exist for this Linux build; both checks could only fail.
+    if (process.platform === 'linux') return
+    if (!quitting) void mandatoryPolicy?.check('foreground-or-resume').catch((error: unknown) => { console.error(error) })`,
+      },
+      {
+        why: 'closing the main window quits on Linux, which has no tray to restore it',
+        find: `      if (quitting || shellInstallerOwnsQuit || sessionEnding) return
+      event.preventDefault()
+      if (updateDialog.isOpen) { updateDialog.focus(); return }`,
+        replace: `      if (quitting || shellInstallerOwnsQuit || sessionEnding) return
+      // Linux has no tray (Windows-only below), so hiding the window would leave a running
+      // process with no way back: closing the main window quits the application there.
+      if (process.platform === 'linux') { quitWithoutConfirmation(); return }
+      event.preventDefault()
+      if (updateDialog.isOpen) { updateDialog.focus(); return }`,
+      },
+    ],
+  },
+
   // ---- apps/desktop/scripts/electron-builder-config.mjs --------------------
   {
     file: 'apps/desktop/scripts/electron-builder-config.mjs',
