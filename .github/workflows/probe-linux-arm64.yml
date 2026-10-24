@@ -1,0 +1,89 @@
+name: Probe linux-arm64 build chain
+
+# Fast(er) feedback loop for the Linux port: applies the overlay and runs the
+# upstream aggregate build (native addon, Host/Client compilation, Desktop
+# bundle, Web build, aggregate type checks) on the native arm64 runner without
+# paying for runtime preparation, Electron packaging or deb assembly.
+#
+# Use it when changing overlay/ or the surgical edits in scripts/apply-linux-overlay.mjs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'Upstream deepseek-ai/deepseek-harness tag or commit to build'
+        type: string
+        required: false
+        default: 'dsh-v0.2.1-rc.3'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dsh-linux-arm64-probe-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  probe:
+    name: Aggregate build probe
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - name: Checkout builder repository
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: ${{ inputs.upstream_ref || 'dsh-v0.2.1-rc.3' }}
+          path: upstream
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Report host facts
+        run: |
+          uname -m
+          nproc
+          free -h
+          df -h /
+
+      - name: Free disk space
+        run: bash scripts/free-disk.sh
+
+      - name: Apply the Linux arm64 port
+        run: node scripts/apply-linux-overlay.mjs upstream
+
+      - name: Install build toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential python3 pkg-config libc6-dev ca-certificates
+
+      - name: Install Node.js and pnpm
+        run: |
+          node --version
+          npm install -g pnpm@11.28.5
+
+      - name: pnpm install (upstream workspace)
+        working-directory: upstream
+        run: pnpm install --frozen-lockfile
+
+      - name: Aggregate build with the official profile
+        working-directory: upstream
+        run: |
+          mkdir -p ../evidence
+          pnpm run build:official 2>&1 | tee ../evidence/build-official.log
+          tail -20 ../evidence/build-official.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-build-log
+          path: evidence/build-official.log
+          if-no-files-found: warn
+          retention-days: 14
