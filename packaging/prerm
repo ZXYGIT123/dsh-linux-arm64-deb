@@ -1,0 +1,10 @@
+#!/bin/sh
+# dpkg pre-removal script for @@PACKAGE_NAME@@.
+#
+# The launcher execs the application directly and nothing runs as a service, so
+# there is no daemon to stop here. The script is still shipped (and kept
+# tolerant) so that future changes have a stable hook and dpkg always gets a
+# clean exit status.
+set -e
+
+exit 0
