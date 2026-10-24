@@ -204,9 +204,9 @@ export function localLinuxPackageEnvironment(environment = process.env) {
     ],
   },
 
-  // ---- apps/desktop/electron-builder-config.mjs ----------------------------
+  // ---- apps/desktop/scripts/electron-builder-config.mjs --------------------
   {
-    file: 'apps/desktop/electron-builder-config.mjs',
+    file: 'apps/desktop/scripts/electron-builder-config.mjs',
     edits: [
       {
         why: 'Linux builds are unsigned and need no mandatory-update policy service',
