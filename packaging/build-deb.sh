@@ -228,12 +228,12 @@ attempt_build() {
   rm -f "$WORKDIR/package.deb"
   log "dpkg-deb: building with $compression compression"
   if [ -n "$DPKG_ROOT_FLAG" ]; then
-    if dpkg-deb --build "$DPKG_ROOT_FLAG" "--compression=$compression" \
+    if dpkg-deb --build "$DPKG_ROOT_FLAG" "-Z$compression" \
         "$STAGE" "$WORKDIR/package.deb" >"$WORKDIR/dpkg-$compression.log" 2>&1; then
       ACTUAL_COMPRESSION=$compression
       return 0
     fi
-  elif dpkg-deb --build "--compression=$compression" \
+  elif dpkg-deb --build "-Z$compression" \
       "$STAGE" "$WORKDIR/package.deb" >"$WORKDIR/dpkg-$compression.log" 2>&1; then
     ACTUAL_COMPRESSION=$compression
     return 0
