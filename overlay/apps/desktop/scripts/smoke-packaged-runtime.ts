@@ -1,4 +1,5 @@
 /** Validate the assembled application, including native Office conversion outside ASAR. */
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { desktopArtifactOutput, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
@@ -20,7 +21,52 @@ const resources = windows || linux ? join(application, 'resources') : join(appli
 const executable = windows ? join(application, 'DeepSeek Harness.exe')
   : linux ? join(application, 'deepseek-harness')
   : join(application, 'MacOS', 'DeepSeek Harness')
+
+/**
+ * Print the Office engine state before the payload smoke, so a packaging defect shows
+ * the actual installed engine packages instead of only the resolver's error.
+ * @returns Nothing.
+ */
+function reportOfficeEngines(): void {
+  try {
+    const modules = join(paths.dsh, 'node_modules', '@deepseek-ai')
+    const installed = readdirSync(modules).filter(name => name.startsWith('libreoffice-kit'))
+    console.log(`desktop smoke diagnostics: prepared engines = ${JSON.stringify(installed)}`)
+    for (const name of installed) {
+      try {
+        const manifest = JSON.parse(readFileSync(join(modules, name, 'package.json'), 'utf8')) as { version?: string }
+        console.log(`desktop smoke diagnostics:   ${name}@${manifest.version ?? '?'}`)
+      } catch {
+        console.log(`desktop smoke diagnostics:   ${name}: package.json unreadable`)
+      }
+    }
+    const kit = JSON.parse(readFileSync(join(modules, 'libreoffice-kit', 'package.json'), 'utf8')) as {
+      version?: string
+      optionalDependencies?: Record<string, string>
+    }
+    console.log(`desktop smoke diagnostics: kit ${kit.version ?? '?'} optional=${JSON.stringify(Object.keys(kit.optionalDependencies ?? {}))}`)
+    try {
+      const unpackedRoot = join(application, 'resources', 'app.asar.unpacked', 'dsh', 'node_modules', '@deepseek-ai')
+      const unpacked = readdirSync(unpackedRoot).filter(name => name.startsWith('libreoffice-kit'))
+      console.log(`desktop smoke diagnostics: unpacked engines = ${JSON.stringify(unpacked)}`)
+      for (const name of unpacked) {
+        try {
+          readFileSync(join(unpackedRoot, name, 'package.json'))
+          console.log(`desktop smoke diagnostics:   ${name}: package.json present`)
+        } catch {
+          console.log(`desktop smoke diagnostics:   ${name}: package.json MISSING`)
+        }
+      }
+    } catch (error) {
+      console.log(`desktop smoke diagnostics: unpacked listing failed: ${String(error)}`)
+    }
+  } catch (error) {
+    console.log(`desktop smoke diagnostics: failed: ${String(error)}`)
+  }
+}
+
 const descriptor = await verifyDesktopRuntime(paths.dsh, readDesktopRuntime(paths.dsh).release.version,
   resolveDesktopPackageTarget(target))
 if (windows && !values.unsigned) await verifyWindowsCode(application)
+reportOfficeEngines()
 await smokePreparedRuntime(join(resources, 'app.asar', 'dsh'), executable, join(resources, 'runtime'), descriptor)
