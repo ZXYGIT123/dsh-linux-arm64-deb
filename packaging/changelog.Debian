@@ -1,0 +1,5 @@
+@@PACKAGE_NAME@@ (@@VERSION@@) unstable; urgency=medium
+
+  * Automated Linux arm64 build assembled from the official desktop payload.
+
+ -- @@MAINTAINER@@  @@DATE@@
