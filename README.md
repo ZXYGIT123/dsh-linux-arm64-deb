@@ -10,6 +10,27 @@
 - 目标架构：`arm64`（aarch64），Debian/Ubuntu 系
 - 产物：`dist/deepseek-harness_<version>~<tag>_arm64.deb`（GitHub Actions artifact `deepseek-harness-linux-arm64-deb`）
 
+## 下载与安装
+
+已构建并通过端到端验证的包：
+
+<https://github.com/ZXYGIT123/dsh-linux-arm64-deb/releases/tag/dsh-v0.2.1-rc.3-linux-arm64>
+
+| 项 | 值 |
+| --- | --- |
+| deb | `deepseek-harness_0.2.1~rc.3_arm64.deb`（267,935,678 字节；GitHub 资源名会把 `~` 规范成 `.`） |
+| SHA-256 | `6bd27b7925456568ba5cc207b243f59a9929733017e3bca70880653b1f7a858f` |
+| 安装后体积 | 1,080,300 KiB |
+| 验证记录 | [`docs/verification-0.2.1-rc.3.md`](docs/verification-0.2.1-rc.3.md)（CI 运行、启动截图、独立复核） |
+
+```bash
+sha256sum deepseek-harness_0.2.1~rc.3_arm64.deb   # 可选：核对
+sudo apt install ./deepseek-harness_0.2.1~rc.3_arm64.deb
+deepseek-harness            # 图形界面
+dsh --help                  # 内置 CLI（同一个安装包提供）
+sudo apt purge deepseek-harness
+```
+
 ## 用户怎么用
 
 ```bash
