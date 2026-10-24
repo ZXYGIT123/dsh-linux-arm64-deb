@@ -58,6 +58,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import uuid
 
 PROG = "verify_deb.py"
 
@@ -707,6 +708,28 @@ def parse_elf_header(header):
 # ---------------------------------------------------------------------------
 
 
+def create_temp_dir(prefix):
+    """Create a writable scratch directory.
+
+    ``tempfile.mkdtemp`` uses mode 0700. On Windows that translates to an
+    owner-only DACL, which a sandboxed (restricted-token) Python process may not
+    be able to add files to, so on Windows use the inherited-directory-ACL
+    behaviour of ``os.makedirs`` instead. POSIX systems keep mkdtemp's secure
+    0700 permissions.
+    """
+    if os.name == "nt":
+        base = tempfile.gettempdir()
+        for _ in range(100):
+            candidate = os.path.join(base, "%s%s" % (prefix, uuid.uuid4().hex[:12]))
+            try:
+                os.makedirs(candidate)
+            except FileExistsError:
+                continue
+            return candidate
+        raise EnvError("cannot create a temporary directory under %s" % base)
+    return tempfile.mkdtemp(prefix=prefix)
+
+
 class PayloadEntry:
     __slots__ = ("name", "size", "mode", "uid", "gid", "mtime", "md5", "head", "content")
 
@@ -865,6 +888,8 @@ def check_ar_structure(deb_path, members, report):
     control_index = None
     data_index = None
     for index, member in enumerate(members):
+        if index == 0:
+            continue  # debian-binary, validated above
         if CONTROL_MEMBER_RE.match(member.name):
             if control_index is not None:
                 report.fail("ar: more than one control member", member.name)
@@ -925,7 +950,17 @@ def check_ar_structure(deb_path, members, report):
 def check_control_fields(control_text, args, report):
     """Validate the control file; return parsed fields (or None)."""
     report.section("control")
-    report.info(control_text.strip().replace("\n", " | "))
+    preview_fields = ("Package", "Version", "Architecture", "Maintainer", "Installed-Size")
+    preview = []
+    for name in preview_fields:
+        if name in control_text:
+            for line in control_text.splitlines():
+                if line.startswith(name + ":"):
+                    preview.append(line)
+                    break
+    for line in preview:
+        report.info(line)
+    report.info("control file: %d bytes" % len(control_text))
     try:
         fields = parse_control_file(control_text)
     except DebFormatError as exc:
@@ -1671,7 +1706,7 @@ def verify(args):
     report.info("expected: %s %s for %s" % (args.package, args.version or "(any)", args.arch))
     report.info("python: %s" % sys.version.split()[0])
 
-    temp_root = tempfile.mkdtemp(prefix="dsh-verify-deb-")
+    temp_root = create_temp_dir("dsh-verify-deb-")
     try:
         try:
             members = read_ar_members(deb_path)
