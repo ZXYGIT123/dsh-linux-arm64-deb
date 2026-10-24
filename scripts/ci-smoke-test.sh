@@ -37,6 +37,17 @@ test -x "$APP_DIR/deepseek-harness" || { echo "FAIL: missing app binary"; exit 1
 test -x "$LAUNCHER" || { echo "FAIL: missing /usr/bin launcher"; exit 1; }
 test -f /usr/share/applications/deepseek-harness.desktop || { echo "FAIL: missing desktop entry"; exit 1; }
 test -f /usr/share/icons/hicolor/512x512/apps/deepseek-harness.png || { echo "FAIL: missing 512px icon"; exit 1; }
+test -L /usr/bin/dsh || { echo "FAIL: missing /usr/bin/dsh CLI link"; exit 1; }
+grep -q 'x-scheme-handler/dsh' /usr/share/applications/deepseek-harness.desktop || { echo "FAIL: dsh protocol not declared"; exit 1; }
+
+log "CLI entry"
+timeout 120 dsh --help > "$EVIDENCE/dsh-help.txt" 2>&1 || true
+head -5 "$EVIDENCE/dsh-help.txt" || true
+grep -qi 'usage\|dsh' "$EVIDENCE/dsh-help.txt" || { echo "FAIL: dsh --help produced no usage output"; exit 1; }
+if command -v xdg-mime >/dev/null 2>&1; then
+  xdg-mime query default x-scheme-handler/dsh | tee "$EVIDENCE/protocol-handler.txt"
+  grep -q 'deepseek-harness' "$EVIDENCE/protocol-handler.txt" || echo "WARN: dsh:// default handler not set by postinst"
+fi
 
 log "ELF architecture"
 {
