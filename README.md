@@ -48,14 +48,25 @@ landlock 沙箱、LibreOffice 引擎）一起打包。这些二进制都与 CPU 
 3. **Electron/运行时路径**：解包出的 Linux Electron 可执行文件是 `electron`（macOS 是 `Electron.app/...`）；
    CLI 启动器新增 `apps/desktop/cli/dsh-linux`；
 4. **打包产物定位**：`smoke-packaged-runtime.ts` 认识 `linux-arm64-unpacked/` 目录；
-5. **electron-builder linux 段**：`deb` 目标、`executableName=deepseek-harness`、图标、maintainer。
+5. **electron-builder linux 段**：`deb` 目标、`executableName=deepseek-harness`、图标、maintainer；
+6. **运行期平台分支（`apps/desktop/src/main.ts`）**：Linux 不构造强制更新策略（其平台白名单会直接抛错）、
+   隐藏更新菜单并跳过自动检查（deb 没有更新源）、关闭主窗口即退出（Linux 没有托盘，隐藏后无法找回）；
+7. **补全被 API 类型收缩波及的 CI 脚本**：`desktop-upload-plan.ts` 的目标表与 `retain-desktop-ci.ts` 的目标守卫；
+8. **LibreOfficeKit 的 ASAR 探针修复**：见下文“是怎么做到的”中的缺陷说明。
 
 全部改动以 **overlay 全文替换 + 精确锚点补丁** 两种形式保存在本仓库：
 
 ```
 overlay/                     # 直接覆盖上游同名文件的副本
-scripts/apply-linux-overlay.mjs   # overlay 复制 + 17 处精确字符串补丁（每处断言必须命中一次）
+scripts/apply-linux-overlay.mjs   # overlay 复制 + 26 处精确字符串补丁（每处断言必须命中一次）
 ```
+
+其中一处是 Linux 特有的真实缺陷修复：Electron 的 ASAR 文件系统在
+`lstatSync(path, { throwIfNoEntry: false })` 缺失时返回 **`null`** 而不是 Node 文档规定的
+`undefined`，而 LibreOfficeKit 用 `!== undefined` 判断“引擎包是否存在”，于是把“未安装的
+Linux 原生引擎”误判成“安装不完整”并中止所有 Office 转换。上游从未在 ASAR 里发布过 Linux 版，
+所以这个组合问题没有暴露。构建流水线在 `prepare:dsh` 阶段把该探针改成 `!= null`，
+让运行时按上游设计回退到随包内置的 **WASM 引擎**。
 
 上游文件一换 tag、补丁锚点对不上时构建会立刻失败，不会静默产出一个“看起来对”的包。
 
@@ -94,7 +105,8 @@ scripts/apply-linux-overlay.mjs   # overlay 复制 + 17 处精确字符串补丁
 ## 已知限制
 
 - **未签名**：debian 包与二进制均未做发行方签名；请核对 artifact 的 SHA-256 与构建日志。
-- **不参与上游自动更新**：上游 updater 只支持 macOS/Windows 渠道，Linux 构建禁用更新（`update=undefined`）。
+- **不参与上游自动更新**：上游 updater 只支持 macOS/Windows 渠道，Linux 构建禁用更新（`update=undefined`），并隐藏“检查更新”菜单与自动检查。
+- **Office 使用内置 WASM 引擎**：与上游 Linux CLI 的默认行为一致；Linux 原生 LibreOfficeKit 引擎上游未默认安装，本包不额外引入（见上文修复说明）。
 - **仅 arm64**：`amd64` 需要另一套 runner 与目标名，本仓库未覆盖。
 - **系统依赖**：Ubuntu 24.04/Debian 13 一代的库名（`libasound2t64`、`libatk-bridge2.0-0t64` 等）；更老的发行版需改 control 的 Depends。
 - **CI 里的“启动成功”** 指 Electron 主窗口在 Xvfb 下创建、进程存活并截图；不等于人工验收全部交互。
