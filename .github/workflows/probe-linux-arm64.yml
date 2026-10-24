@@ -75,6 +75,7 @@ jobs:
       - name: Aggregate build with the official profile
         working-directory: upstream
         run: |
+          set -o pipefail
           mkdir -p ../evidence
           pnpm run build:official 2>&1 | tee ../evidence/build-official.log
           tail -20 ../evidence/build-official.log
