@@ -61,6 +61,10 @@ DEPENDS = (
 )
 RECOMMENDS = "fonts-noto-color-emoji, fonts-liberation, libvulkan1"
 
+CLI_RELPATH = "resources/runtime/cli/bin/dsh"
+CLI_TARGET = "/opt/%s/%s" % (PACKAGE, CLI_RELPATH)
+SYMLINKS = {"usr/bin/dsh": CLI_TARGET}
+
 ELF_MACHINE = {"arm64": 0xB7, "amd64": 0x3E}
 
 
@@ -242,6 +246,16 @@ def base_payload(arch=ARCH):
         "exec \"$APP_DIR/%s\" \"$@\"\n"
         % (PACKAGE, PACKAGE)
     )
+    cli_launcher = (
+        "#!/bin/sh\n"
+        "# Synthetic copy of the bundled Linux dsh launcher.\n"
+        "set -e\n"
+        "launcher=$0\n"
+        "while [ -L \"$launcher\" ]; do launcher=$(readlink \"$launcher\"); done\n"
+        "resources=$(CDPATH= cd -- \"$(dirname -- \"$launcher\")/../../..\" && pwd -P)\n"
+        "ELECTRON_RUN_AS_NODE=1 exec \"$resources/../deepseek-harness\" --expose-internals "
+        "\"$resources/app.asar/dsh/node_modules/@deepseek-ai/dsh-desktop-host/lib/cli.js\" \"$@\"\n"
+    )
     changelog = (
         "%s (%s) unstable; urgency=medium\n\n"
         "  * Synthetic fixture used to test verify_deb.py.\n\n"
@@ -254,6 +268,12 @@ def base_payload(arch=ARCH):
         "opt/%s/resources/app.asar" % PACKAGE: (b"ASAR" + b"\x00" * 4092, 0o644, 0, 0),
         "opt/%s/resources/runtime/primary-runtime/dependencies/node/bin/node"
         % PACKAGE: (fake_elf(machine, 4096), 0o755, 0, 0),
+        "opt/%s/resources/runtime/cli/bin/dsh" % PACKAGE: (
+            cli_launcher.encode(),
+            0o755,
+            0,
+            0,
+        ),
         "usr/bin/%s" % PACKAGE: (launcher.encode(), 0o755, 0, 0),
         "usr/share/applications/%s.desktop" % PACKAGE: (desktop.encode(), 0o644, 0, 0),
         "usr/share/icons/hicolor/256x256/apps/%s.png" % PACKAGE: (
@@ -352,7 +372,10 @@ POSTINST = (
     "if command -v update-desktop-database >/dev/null 2>&1; then\n"
     "  update-desktop-database -q /usr/share/applications >/dev/null 2>&1 || true\n"
     "fi\n"
-    "exit 0\n" % PACKAGE
+    "if command -v xdg-mime >/dev/null 2>&1; then\n"
+    "  xdg-mime default %s.desktop x-scheme-handler/dsh >/dev/null 2>&1 || true\n"
+    "fi\n"
+    "exit 0\n" % (PACKAGE, PACKAGE)
 )
 PRERM = "#!/bin/sh\nset -e\nexit 0\n"
 POSTRM = (
@@ -380,6 +403,10 @@ def tar_bytes(entries):
             if kind == "dir":
                 info.type = tarfile.DIRTYPE
                 archive.addfile(info)
+            elif kind == "sym":
+                info.type = tarfile.SYMTYPE
+                info.linkname = body.decode() if isinstance(body, bytes) else body
+                archive.addfile(info)
             else:
                 info.type = tarfile.REGTYPE
                 info.size = len(body)
@@ -387,13 +414,16 @@ def tar_bytes(entries):
     return buffer.getvalue()
 
 
-def data_tar_bytes(payload):
+def data_tar_bytes(payload, symlinks=None):
+    symlinks = dict(symlinks or {})
     entries = []
     for directory in payload_dirs(payload):
         entries.append((directory, "dir", b"", 0o755, 0, 0, EPOCH))
     for path in sorted(payload):
         body, mode, uid, gid = payload[path]
         entries.append((path, "file", body, mode, uid, gid, EPOCH))
+    for path in sorted(symlinks):
+        entries.append((path, "sym", symlinks[path].encode(), 0o777, 0, 0, EPOCH))
     return tar_bytes(entries)
 
 
@@ -449,6 +479,8 @@ def build_deb(
     arch=ARCH,
     drop_payload=(),
     payload_overrides=None,
+    drop_symlinks=(),
+    symlink_overrides=None,
     control_overrides=None,
     drop_control_fields=(),
     maintainer_scripts=None,
@@ -463,6 +495,10 @@ def build_deb(
         payload.pop(path, None)
     for path, value in (payload_overrides or {}).items():
         payload[path] = value
+    symlinks = dict(SYMLINKS)
+    for path in drop_symlinks:
+        symlinks.pop(path, None)
+    symlinks.update(symlink_overrides or {})
     control = control_text(
         payload,
         arch=arch,
@@ -476,7 +512,7 @@ def build_deb(
         control, md5sums, maintainer_scripts=maintainer_scripts,
         extra=extra_control_files,
     )
-    data_tar = data_tar_bytes(payload)
+    data_tar = data_tar_bytes(payload, symlinks)
     compressed_control = compress_bytes(compression, control_tar)
     compressed_data = compress_bytes(compression, data_tar)
     if compressed_control is None or compressed_data is None:
@@ -695,6 +731,32 @@ def run_tests(directory, keep=False):
         ),
         "launcher",
     )
+    expect_fail(
+        results,
+        "dsh CLI launcher is missing from the payload",
+        fixture(
+            "missing-cli-launcher",
+            drop_payload=("opt/%s/%s" % (PACKAGE, CLI_RELPATH),),
+        ),
+        "dsh",
+    )
+    expect_fail(
+        results,
+        "/usr/bin/dsh symlink is missing",
+        fixture("missing-dsh-symlink", drop_symlinks=("usr/bin/dsh",)),
+        "dsh",
+    )
+    expect_fail(
+        results,
+        "/usr/bin/dsh points at the wrong target",
+        fixture(
+            "wrong-dsh-symlink",
+            symlink_overrides={
+                "usr/bin/dsh": "/opt/%s/resources/runtime/other" % PACKAGE
+            },
+        ),
+        "target",
+    )
 
     # 5. maintainer script / md5sums defects.
     expect_fail(
@@ -718,6 +780,23 @@ def run_tests(directory, keep=False):
             },
         ),
         "set -e",
+    )
+    expect_fail(
+        results,
+        "postinst without dsh:// handler registration",
+        fixture(
+            "postinst-no-xdg-mime",
+            maintainer_scripts={
+                "postinst": (
+                    "#!/bin/sh\nset -e\n"
+                    "chmod 4755 /opt/%s/chrome-sandbox 2>/dev/null || true\n"
+                    "exit 0\n" % PACKAGE
+                ),
+                "prerm": PRERM,
+                "postrm": POSTRM,
+            },
+        ),
+        "xdg-mime",
     )
 
     def flip_digest(text):
