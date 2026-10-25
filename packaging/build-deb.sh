@@ -158,6 +158,16 @@ normalize_version() {
   case "$version" in
     v*) version=${version#v} ;;
   esac
+  revision=""
+  # A trailing -<digits> is a Debian revision (e.g. 0.2.1~rc.3-3); keep its hyphen.
+  case "$version" in
+    *-[0-9]*)
+      case "${version##*-}" in
+        *[!0-9]*) : ;;
+        *) revision="-${version##*-}"; version=${version%-*} ;;
+      esac
+      ;;
+  esac
   version=$(printf '%s' "$version" | tr -- '-' '~')
   case "$version" in
     "") die "--version must not be empty" ;;
@@ -167,7 +177,7 @@ normalize_version() {
   case "$version" in
     *[!A-Za-z0-9.+~]*) die "version '$version' contains characters that are not valid in a Debian upstream version" ;;
   esac
-  printf '%s' "$version"
+  printf '%s%s' "$version" "$revision"
 }
 
 validate_name() {
