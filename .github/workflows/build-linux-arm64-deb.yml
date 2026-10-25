@@ -20,6 +20,11 @@ on:
         type: boolean
         required: false
         default: false
+      debian_revision:
+        description: 'Debian revision suffix appended to the upstream version (e.g. 2 -> 0.2.1~rc.3-2)'
+        type: string
+        required: false
+        default: '2'
 
 permissions:
   contents: read
@@ -115,9 +120,11 @@ jobs:
       - name: Resolve package version
         run: |
           set -euo pipefail
-          VERSION="$(node -p "require('./upstream/package.json').version.replace(/-/g, '~')")"
+          BASE="$(node -p "require('./upstream/package.json').version.replace(/-/g, '~')")"
+          REVISION="${{ inputs.debian_revision || '2' }}"
+          VERSION="${BASE}-${REVISION}"
           echo "DSH_PKG_VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "package version: $VERSION"
+          echo "package version: $VERSION (upstream $BASE, revision $REVISION)"
 
       - name: Assemble the .deb
         run: |
