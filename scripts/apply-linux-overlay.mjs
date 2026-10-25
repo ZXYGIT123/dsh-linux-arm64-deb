@@ -228,42 +228,63 @@ function manifestVersion(path: string, subject: string): string {`,
   // Wayland containers without NetworkManager/D-Bus flap the browser offline/online state.
   // The client connection aborts its generation on such a hint, so a healthy loopback
   // connection cycles "reconnecting / connected" every couple of seconds. This payload only
-  // talks to its own Host, so the offline listener becomes a no-op.
+  // talks to its own Host, so every copy of the client-connection offline listener becomes a
+  // no-op. The patch runs after materialization so nested duplicate copies are covered too.
   {
     file: 'apps/desktop/scripts/prepare-dsh.ts',
     edits: [
       {
+        why: 'read runtime directories recursively for the connection patch',
+        find: `import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'`,
+        replace: `import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'`,
+      },
+      {
         why: 'add the connection offline-listener neutralizer',
         find: `function patchOfficeEngineProbe(modules: string): void {`,
         replace: `/**
- * Disable the browser offline listener in the installed client-connection bundle. Wayland
- * containers without NetworkManager/D-Bus report spurious offline/online flips, and the
- * connection layer aborts the current generation on any offline hint, so a healthy local
- * connection would cycle through "reconnecting / connected" indefinitely.
- * @param modules - Installed production node_modules directory.
+ * Disable every copy of the browser offline listener in the materialized client-connection
+ * bundle. Wayland containers without NetworkManager/D-Bus report spurious offline/online flips,
+ * and the connection layer aborts the current generation on any offline hint, so a healthy
+ * local connection would cycle through "reconnecting / connected" indefinitely.
+ * @param modules - Materialized production node_modules directory.
  */
 function patchConnectionNetworkWatch(modules: string): void {
-  const file = join(modules, '@deepseek-ai', 'dsh-client-connection', 'lib', 'client.browser.js')
-  const source = readFileSync(file, 'utf8')
-  const probe = 'browser.addEventListener("offline", offline);'
-  if (source.split(probe).length - 1 !== 1) {
-    throw new Error('desktop runtime: unexpected connection offline listener; refusing to patch the installed bundle')
+  let patched = 0
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) { visit(path); continue }
+      if (!entry.isFile() || !path.includes('dsh-client-connection') || !path.endsWith('client.browser.js')) continue
+      const source = readFileSync(path, 'utf8')
+      const probe = 'browser.addEventListener("offline", offline);'
+      if (source.split(probe).length - 1 !== 1) continue
+      writeFileSync(path, source.replace(probe, 'browser.addEventListener("offline", () => {});'))
+      patched += 1
+    }
   }
-  writeFileSync(file, source.replace(probe, 'browser.addEventListener("offline", () => {});'))
+  visit(modules)
+  if (patched === 0) throw new Error('desktop runtime: no connection offline listener found to patch')
+  console.log('desktop runtime: neutralized ' + String(patched) + ' browser offline listener(s)')
 }
 
 function patchOfficeEngineProbe(modules: string): void {`,
       },
       {
-        why: 'apply the offline-listener fix with the other runtime patches',
-        find: `    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:office-engine-probe', async () => {
-      patchOfficeEngineProbe(join(BUILD_ROOT, 'node_modules'))
+        why: 'apply the offline-listener fix to the materialized runtime',
+        find: `    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:materialize-modules', async () => {
+      cpSync(modules, join(DSH_OUTPUT_ROOT, 'node_modules'), {
+        recursive: true, dereference: true,
+        filter: source => desktopRuntimeFileExclusion(relative(modules, source), target, officeEngine) === undefined,
+      })
     })`,
-        replace: `    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:office-engine-probe', async () => {
-      patchOfficeEngineProbe(join(BUILD_ROOT, 'node_modules'))
+        replace: `    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:materialize-modules', async () => {
+      cpSync(modules, join(DSH_OUTPUT_ROOT, 'node_modules'), {
+        recursive: true, dereference: true,
+        filter: source => desktopRuntimeFileExclusion(relative(modules, source), target, officeEngine) === undefined,
+      })
     })
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:connection-network-watch', async () => {
-      patchConnectionNetworkWatch(join(BUILD_ROOT, 'node_modules'))
+      patchConnectionNetworkWatch(join(DSH_OUTPUT_ROOT, 'node_modules'))
     })`,
       },
     ],
