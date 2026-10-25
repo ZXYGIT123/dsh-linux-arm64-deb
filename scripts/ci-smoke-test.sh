@@ -35,6 +35,8 @@ head -40 "$EVIDENCE/dpkg-state.txt"
 
 test -x "$APP_DIR/deepseek-harness" || { echo "FAIL: missing app binary"; exit 1; }
 test -x "$LAUNCHER" || { echo "FAIL: missing /usr/bin launcher"; exit 1; }
+grep -q 'force-prefers-reduced-motion' "$LAUNCHER" || { echo "FAIL: launcher lost the reduced-motion switch"; exit 1; }
+grep -q 'DSH_HARNESS_KEEP_ANIMATIONS' "$LAUNCHER" || { echo "FAIL: launcher lost the animation opt-out"; exit 1; }
 test -f /usr/share/applications/deepseek-harness.desktop || { echo "FAIL: missing desktop entry"; exit 1; }
 test -f /usr/share/icons/hicolor/512x512/apps/deepseek-harness.png || { echo "FAIL: missing 512px icon"; exit 1; }
 test -L /usr/bin/dsh || { echo "FAIL: missing /usr/bin/dsh CLI link"; exit 1; }
