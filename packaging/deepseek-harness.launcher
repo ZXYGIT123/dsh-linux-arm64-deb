@@ -32,4 +32,16 @@ if [ "$(id -u 2>/dev/null || echo 1)" = "0" ]; then
   esac
 fi
 
+# Low-frame-rate environments (Android-hosted Linux desktops, VMs and containers
+# without GPU acceleration) drop most frames of the shell's dialog and dropdown
+# entrance animations, which users perceive as the screen jumping. Chromium's
+# reduced-motion switch makes the UI skip those animations; users who want them
+# back can start with DSH_HARNESS_KEEP_ANIMATIONS=1 or pass an explicit flag.
+if [ "${DSH_HARNESS_KEEP_ANIMATIONS:-0}" != "1" ]; then
+  case " $* " in
+    *" --force-prefers-reduced-motion "*) ;;
+    *) set -- --force-prefers-reduced-motion "$@" ;;
+  esac
+fi
+
 exec "$APP_DIR/$EXE_NAME" "$@"
