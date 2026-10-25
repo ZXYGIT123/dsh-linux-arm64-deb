@@ -224,6 +224,51 @@ function manifestVersion(path: string, subject: string): string {`,
     ],
   },
 
+  // ---- apps/desktop/scripts/prepare-dsh.ts (connection network watch) -----
+  // Wayland containers without NetworkManager/D-Bus flap the browser offline/online state.
+  // The client connection aborts its generation on such a hint, so a healthy loopback
+  // connection cycles "reconnecting / connected" every couple of seconds. This payload only
+  // talks to its own Host, so the offline listener becomes a no-op.
+  {
+    file: 'apps/desktop/scripts/prepare-dsh.ts',
+    edits: [
+      {
+        why: 'add the connection offline-listener neutralizer',
+        find: `function patchOfficeEngineProbe(modules: string): void {`,
+        replace: `/**
+ * Disable the browser offline listener in the installed client-connection bundle. Wayland
+ * containers without NetworkManager/D-Bus report spurious offline/online flips, and the
+ * connection layer aborts the current generation on any offline hint, so a healthy local
+ * connection would cycle through "reconnecting / connected" indefinitely.
+ * @param modules - Installed production node_modules directory.
+ */
+function patchConnectionNetworkWatch(modules: string): void {
+  const file = join(modules, '@deepseek-ai', 'dsh-client-connection', 'lib', 'client.browser.js')
+  const source = readFileSync(file, 'utf8')
+  const probe = 'browser.addEventListener("offline", offline);'
+  if (source.split(probe).length - 1 !== 1) {
+    throw new Error('desktop runtime: unexpected connection offline listener; refusing to patch the installed bundle')
+  }
+  writeFileSync(file, source.replace(probe, 'browser.addEventListener("offline", () => {});'))
+}
+
+function patchOfficeEngineProbe(modules: string): void {`,
+      },
+      {
+        why: 'apply the offline-listener fix with the other runtime patches',
+        find: `    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:office-engine-probe', async () => {
+      patchOfficeEngineProbe(join(BUILD_ROOT, 'node_modules'))
+    })`,
+        replace: `    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:office-engine-probe', async () => {
+      patchOfficeEngineProbe(join(BUILD_ROOT, 'node_modules'))
+    })
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:connection-network-watch', async () => {
+      patchConnectionNetworkWatch(join(BUILD_ROOT, 'node_modules'))
+    })`,
+      },
+    ],
+  },
+
   // ---- apps/desktop/scripts/desktop-auto-update-environment.mjs -------------
   {
     file: 'apps/desktop/scripts/desktop-auto-update-environment.mjs',
