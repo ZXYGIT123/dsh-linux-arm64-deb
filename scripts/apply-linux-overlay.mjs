@@ -265,6 +265,12 @@ function patchConnectionNetworkWatch(modules: string): void {
         throw new Error('desktop runtime: unexpected connection retry loop; refusing to patch')
       }
       source = source.replace(retryProbe, '$1await failed;\\n$1const reason = ac.signal.reason;\\n$1console.error("[connection] generation ended:", reason && (reason.name || reason.message) ? String(reason.name) + ": " + String(reason.message) + " code=" + String(reason.code) : String(reason));')
+      // Diagnostic: the race rejection carries the real stream failure, before settle() overwrites the signal reason.
+      const failProbe = /\} catch \(error\) \{\s*if \(!ac\.signal\.aborted\) ac\.abort\(error\);\s*\}/
+      if (source.match(failProbe) === null) {
+        throw new Error('desktop runtime: unexpected connection failure handler; refusing to patch')
+      }
+      source = source.replace(failProbe, '} catch (error) {\\n\\t\\t\\t\\t\\t\\tconsole.error("[connection] generation failed:", error && (error.name || error.message) ? String(error.name) + ": " + String(error.message) : String(error), error && error.cause ? "cause=" + String(error.cause) : "");\\n\\t\\t\\t\\t\\t\\tif (!ac.signal.aborted) ac.abort(error);\\n\\t\\t\\t\\t\\t}')
       // Diagnostic: a bare AbortError means the owner was released; print the caller stack.
       // Older duplicate bundles may not carry this helper, so tracing stays optional.
       const releaseProbe = /(const releaseOwner = \(current\) => \{\s*if \(owner !== current\) return;)/
