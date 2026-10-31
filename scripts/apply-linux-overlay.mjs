@@ -255,10 +255,17 @@ function patchConnectionNetworkWatch(modules: string): void {
       const path = join(directory, entry.name)
       if (entry.isDirectory()) { visit(path); continue }
       if (!entry.isFile() || !path.includes('dsh-client-connection') || !path.endsWith('client.browser.js')) continue
-      const source = readFileSync(path, 'utf8')
+      let source = readFileSync(path, 'utf8')
       const probe = 'browser.addEventListener("offline", offline);'
       if (source.split(probe).length - 1 !== 1) continue
-      writeFileSync(path, source.replace(probe, 'browser.addEventListener("offline", () => {});'))
+      source = source.replace(probe, 'browser.addEventListener("offline", () => {});')
+      // Diagnostic: report why a generation ended (connection close reason or handshake error).
+      const retryProbe = /(\n[\t ]+)await failed;/
+      if (source.match(retryProbe) === null) {
+        throw new Error('desktop runtime: unexpected connection retry loop; refusing to patch')
+      }
+      source = source.replace(retryProbe, '$1await failed;\n$1console.error("[connection] generation ended:", ac.signal.reason ?? null);')
+      writeFileSync(path, source)
       patched += 1
     }
   }
