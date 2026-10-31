@@ -27,7 +27,7 @@ on:
         default: '2'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: dsh-linux-arm64-deb-${{ github.ref }}
@@ -160,6 +160,22 @@ jobs:
             evidence/**
           if-no-files-found: warn
           retention-days: 30
+
+      # Publish from inside the workflow: the artifact download path through the
+      # GitHub API is slow for a 256 MiB package, while an in-runner upload is fast.
+      - name: Publish GitHub release
+        if: ${{ !inputs.skip_smoke }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: dsh-v0.2.1-rc.3-linux-arm64-r${{ inputs.debian_revision || '2' }}
+        run: |
+          set -euo pipefail
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" dist/*.deb evidence/desktop.png \
+            --title "DeepSeek Harness Linux arm64 · ${DSH_PKG_VERSION}" \
+            --notes-file docs/release-notes-latest.md \
+            --target main
+          gh release view "$TAG" --json url --jq .url
 
       - name: Upload build logs on failure
         if: failure()
