@@ -284,6 +284,31 @@ function patchConnectionNetworkWatch(modules: string): void {
   console.log('desktop runtime: neutralized ' + String(patched) + ' browser offline listener(s)')
 }
 
+/**
+ * Container hosts can miss WebSocket Pong frames under CPU starvation, and the gateway
+ * terminates a socket after two missed heartbeats (2 s each), which shows up as an endless
+ * "reconnecting / connected" cycle. Keep the heartbeat running but stop it from killing a
+ * healthy local connection; idle sockets are still closed when their Peer scope ends.
+ * @param modules - Materialized production node_modules directory.
+ */
+function patchGatewayHeartbeat(modules: string): void {
+  let patched = 0
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) { visit(path); continue }
+      if (!entry.isFile() || !path.includes('dsh-api-gateway') || !path.endsWith('index.js')) continue
+      const source = readFileSync(path, 'utf8')
+      const probe = 'const MAX_MISSED_HEARTBEATS = 2;'
+      if (source.split(probe).length - 1 !== 1) continue
+      writeFileSync(path, source.replace(probe, 'const MAX_MISSED_HEARTBEATS = 1e9;'))
+      patched += 1
+    }
+  }
+  visit(modules)
+  console.log('desktop runtime: relaxed gateway heartbeat termination on ' + String(patched) + ' bundle(s)')
+}
+
 function patchOfficeEngineProbe(modules: string): void {`,
       },
       {
@@ -302,6 +327,7 @@ function patchOfficeEngineProbe(modules: string): void {`,
     })
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:connection-network-watch', async () => {
       patchConnectionNetworkWatch(join(DSH_OUTPUT_ROOT, 'node_modules'))
+      patchGatewayHeartbeat(join(DSH_OUTPUT_ROOT, 'node_modules'))
     })`,
       },
     ],
