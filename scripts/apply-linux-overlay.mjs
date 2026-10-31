@@ -264,7 +264,7 @@ function patchConnectionNetworkWatch(modules: string): void {
       if (source.match(retryProbe) === null) {
         throw new Error('desktop runtime: unexpected connection retry loop; refusing to patch')
       }
-      source = source.replace(retryProbe, '$1await failed;\\n$1console.error("[connection] generation ended:", ac.signal.reason ?? null);')
+      source = source.replace(retryProbe, '$1await failed;\\n$1const reason = ac.signal.reason;\\n$1console.error("[connection] generation ended:", reason && (reason.name || reason.message) ? String(reason.name) + ": " + String(reason.message) + " code=" + String(reason.code) : String(reason));')
       writeFileSync(path, source)
       patched += 1
     }
