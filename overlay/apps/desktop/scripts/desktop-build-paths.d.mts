@@ -1,7 +1,6 @@
-/** Supported Desktop release target names, including the Linux arm64 community target. */
-export type DesktopBuildTarget = 'mac-arm64' | 'mac-x64' | 'win-x64' | 'linux-arm64'
+import type { DesktopAutoUpdateTarget } from './desktop-auto-update-environment.mjs'
 
-/** Mutable target directories plus the shared immutable download cache. */
+/** Mutable target directories plus shared download and package caches. */
 export interface DesktopTargetBuildPaths {
   readonly root: string
   readonly artifacts: string
@@ -16,7 +15,11 @@ export interface DesktopTargetBuildPaths {
   readonly packedVendor: string
   readonly packedLandlock: string
   readonly downloads: string
+  readonly pnpmStore: string
 }
+
+/** Supported Desktop release target names, including the Linux arm64 community target. */
+export type DesktopBuildTarget = 'mac-arm64' | 'mac-x64' | 'win-x64' | 'linux-arm64'
 
 /**
  * Resolve the fixed build target selected by a packaging environment.
@@ -34,9 +37,10 @@ export function resolveDesktopBuildTarget(
 /**
  * Return the mutable preparation and artifact directories owned by one release target.
  * @param target - Supported Desktop target name.
- * @returns Target paths plus the shared immutable download cache.
+ * @param environment - Packaging environment with an optional absolute cache directory.
+ * @returns Target paths plus shared download and package caches.
  */
-export function desktopTargetBuildPaths(target: DesktopBuildTarget): DesktopTargetBuildPaths
+export function desktopTargetBuildPaths(target: DesktopBuildTarget, environment?: NodeJS.ProcessEnv): DesktopTargetBuildPaths
 
 /**
  * Return the platform and architecture of the payload one release target prepares.
