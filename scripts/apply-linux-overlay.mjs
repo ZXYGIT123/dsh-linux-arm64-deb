@@ -574,6 +574,11 @@ function applyEdits() {
   return { applied, failures }
 }
 
+if (process.argv.includes('--dump-edits')) {
+  console.log(JSON.stringify(EDITS.map(({ file, edits }) => ({ file, finds: edits.map(({ why, find }) => ({ why, find })) })), null, 2))
+  process.exit(0)
+}
+
 const copied = applyOverlay()
 const { applied, failures } = applyEdits()
 
