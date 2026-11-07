@@ -167,9 +167,11 @@ jobs:
         if: ${{ !inputs.skip_smoke }}
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: dsh-v0.2.1-rc.3-linux-arm64-r${{ inputs.debian_revision || '2' }}
+          UPSTREAM_REF: ${{ inputs.upstream_ref || 'dsh-v0.2.1-rc.3' }}
+          REVISION: ${{ inputs.debian_revision || '2' }}
         run: |
           set -euo pipefail
+          TAG="dsh-${UPSTREAM_REF#dsh-v}-linux-arm64-r${REVISION}"
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" dist/*.deb evidence/desktop.png \
             --title "DeepSeek Harness Linux arm64 · ${DSH_PKG_VERSION}" \
