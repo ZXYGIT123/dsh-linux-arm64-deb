@@ -269,6 +269,11 @@ function patchConnectionNetworkWatch(modules: string): void {
       if (source.match(failProbe) !== null) {
         source = source.replace(failProbe, '} catch (error) {\\n\\t\\t\\t\\t\\t\\tconsole.error("[connection] generation failed:", error && (error.name || error.message) ? String(error.name) + ": " + String(error.message) : String(error), error && error.cause ? "cause=" + String(error.cause) : "");\\n\\t\\t\\t\\t\\t\\tif (!ac.signal.aborted) ac.abort(error);\\n\\t\\t\\t\\t\\t}')
       }
+      // Diagnostic: print the real failure the source promise rejected with.
+      const lostProbe = 'rejectSourceLost(failure);'
+      if (source.split(lostProbe).length - 1 === 1) {
+        source = source.replace(lostProbe, 'rejectSourceLost(failure);\\n\\t\\t\\t\\t\\t\\tconsole.error("[connection] source lost:", failure && (failure.name || failure.message) ? String(failure.name) + ": " + String(failure.message) : String(failure), failure && failure.cause ? "cause=" + String(failure.cause) : "");')
+      }
       // Diagnostic: a bare AbortError means the owner was released; print the caller stack.
       // Older duplicate bundles may not carry this helper, so tracing stays optional.
       const releaseProbe = /(const releaseOwner = \(current\) => \{\s*if \(owner !== current\) return;)/
@@ -309,6 +314,29 @@ function patchGatewayHeartbeat(modules: string): void {
   console.log('desktop runtime: relaxed gateway heartbeat termination on ' + String(patched) + ' bundle(s)')
 }
 
+/**
+ * Log every WebSocket close event of the gateway client so the reconnect loop's root cause
+ * (server- or network-initiated close) is visible in the renderer console.
+ * @param modules - Materialized production node_modules directory.
+ */
+function patchGatewayCloseLog(modules: string): void {
+  let patched = 0
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) { visit(path); continue }
+      if (!entry.isFile() || !path.includes('dsh-api-gateway') || !path.endsWith('client.browser.js')) continue
+      const source = readFileSync(path, 'utf8')
+      const probe = /const closed = \(\) => \{\s*(socket\.removeEventListener\("open", opened\);)/
+      if (source.match(probe) === null) continue
+      writeFileSync(path, source.replace(probe, 'const closed = (event) => {\\n\\t\\t\\t\\t\\t\\tconsole.error("[api-gateway] websocket closed: code=" + event.code + " reason=" + event.reason);\\n\\t\\t\\t\\t\\t\\t$1'))
+      patched += 1
+    }
+  }
+  visit(modules)
+  console.log('desktop runtime: added websocket close diagnostics to ' + String(patched) + ' gateway bundle(s)')
+}
+
 function patchOfficeEngineProbe(modules: string): void {`,
       },
       {
@@ -328,6 +356,7 @@ function patchOfficeEngineProbe(modules: string): void {`,
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:connection-network-watch', async () => {
       patchConnectionNetworkWatch(join(DSH_OUTPUT_ROOT, 'node_modules'))
       patchGatewayHeartbeat(join(DSH_OUTPUT_ROOT, 'node_modules'))
+      patchGatewayCloseLog(join(DSH_OUTPUT_ROOT, 'node_modules'))
     })`,
       },
     ],
