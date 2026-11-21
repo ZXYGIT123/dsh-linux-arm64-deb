@@ -422,6 +422,57 @@ function patchOfficeEngineProbe(modules: string): void {`,
     ],
   },
 
+  // ---- apps/desktop/src/web-document.ts ------------------------------------
+  // The Host launch URL is exchanged for a cookie with a bare `fetch`. Inside Android-hosted
+  // Wayland containers that fetch can resolve through an unexpected network path and never
+  // see the 303 + Set-Cookie reply, so the desktop shell aborts with
+  // "Desktop Host authentication failed". Use Node's http client and dial 127.0.0.1 directly.
+  {
+    file: 'apps/desktop/src/web-document.ts',
+    edits: [
+      {
+        why: 'import the Node HTTP client used for the Host handshake',
+        find: `import { extname, resolve, sep } from 'node:path'`,
+        replace: `import { request as httpRequest } from 'node:http'
+import { extname, resolve, sep } from 'node:path'`,
+      },
+      {
+        why: 'exchange the Host launch URL without relying on the global fetch stack',
+        find: `export async function authenticateWebHost(url: string): Promise<string> {
+  const response = await fetch(url, { redirect: 'manual' })
+  const cookie = response.headers.get('set-cookie')
+  await response.body?.cancel()
+  if (response.status !== 303 || cookie === null) throw new Error('Desktop Host authentication failed')
+  const end = cookie.indexOf(';')
+  return end < 0 ? cookie : cookie.slice(0, end)
+}`,
+        replace: `export async function authenticateWebHost(url: string): Promise<string> {
+  const cookie = await new Promise<string | null>((resolve, reject) => {
+    const target = new URL(url)
+    const request = httpRequest({
+      host: target.hostname,
+      port: target.port === '' ? 80 : Number(target.port),
+      path: target.pathname + target.search,
+      method: 'GET',
+      headers: { host: target.host, connection: 'close' },
+      agent: false,
+    }, (response) => {
+      const header = response.headers['set-cookie']
+      const value = Array.isArray(header) ? header[0] : header
+      response.resume()
+      resolve(response.statusCode === 303 && value !== undefined && value !== null ? value : null)
+    })
+    request.on('error', reject)
+    request.end()
+  })
+  if (cookie === null) throw new Error('Desktop Host authentication failed')
+  const end = cookie.indexOf(';')
+  return end < 0 ? cookie : cookie.slice(0, end)
+}`,
+      },
+    ],
+  },
+
   // ---- apps/desktop/src/main.ts -------------------------------------------
   // Runtime-only fixes: the shell runs on Linux once packaging succeeds, but three
   // platform assumptions make the packaged app unusable (see analysis/port-report.md).
