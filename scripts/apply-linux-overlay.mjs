@@ -489,6 +489,18 @@ function patchOfficeEngineProbe(modules: string): void {`,
     ],
   },
 
+  // ---- apps/desktop/scripts/desktop-publish-targets.ts --------------------
+  {
+    file: 'apps/desktop/scripts/desktop-publish-targets.ts',
+    edits: [
+      {
+        why: 'the retention router only knows the published macOS/Windows targets',
+        find: `const targetSchema = z.enum(['mac-arm64', 'mac-x64', 'win-x64'])`,
+        replace: `const targetSchema = z.enum(['mac-arm64', 'mac-x64', 'win-x64', 'linux-arm64'])`,
+      },
+    ],
+  },
+
   // ---- apps/desktop/scripts/electron-builder-config.mjs --------------------
   {
     file: 'apps/desktop/scripts/electron-builder-config.mjs',
