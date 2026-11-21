@@ -189,6 +189,36 @@ export function localLinuxPackageEnvironment(environment = process.env) {
  * bundled WASM engine, which is the engine LibreOfficeKit ships for Linux by default.
  * @param modules - Installed production node_modules directory.
  */
+/**
+ * The Office Kit completeness probe treats an Electron ASAR directory entry (lstat -> null)
+ * as an installed-but-broken package. Relax it so a missing native kit falls back to WASM.
+ * @param modules - Node modules directory holding the packaged Office Kit.
+ */
+function patchOfficeKitCompletenessProbe(modules: string): void {
+  let patched = 0
+  const replacements = [
+    ['throwIfNoEntry: false }) !== undefined', 'throwIfNoEntry: false }) != null'],
+    ['throwIfNoEntry: false }) !== void 0', 'throwIfNoEntry: false }) != null'],
+  ] as const
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) { visit(path); continue }
+      if (!entry.isFile() || !path.endsWith('.js')) continue
+      if (!path.includes('office-kit') && !path.includes('libreoffice')) continue
+      let source = readFileSync(path, 'utf8')
+      if (!source.includes('Installed LibreOfficeKit package is incomplete')) continue
+      let touched = false
+      for (const [find, replacement] of replacements) {
+        if (source.includes(find)) { source = source.split(find).join(replacement); touched = true }
+      }
+      if (touched) { writeFileSync(path, source); patched += 1 }
+    }
+  }
+  visit(modules)
+  console.log('desktop runtime: relaxed office kit completeness probe in ' + String(patched) + ' bundle(s)')
+}
+
 function patchOfficeEngineProbe(modules: string): void {
   const file = join(modules, '@deepseek-ai', 'libreoffice-kit', 'lib', 'index.js')
   const source = readFileSync(file, 'utf8')
@@ -207,6 +237,7 @@ function manifestVersion(path: string, subject: string): string {`,
         replace: `    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:install', () => runPnpm(['install', '--prod', '--frozen-lockfile', '--trust-lockfile']))
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:office-engine-probe', async () => {
       patchOfficeEngineProbe(join(BUILD_ROOT, 'node_modules'))
+      patchOfficeKitCompletenessProbe(join(BUILD_ROOT, 'node_modules'))
     })`,
       },
     ],
@@ -257,7 +288,7 @@ function patchConnectionNetworkWatch(modules: string): void {
       const path = join(directory, entry.name)
       if (entry.isDirectory()) { visit(path); continue }
       if (!entry.isFile() || !path.includes('dsh-client-connection')) continue
-      if (!/\.(?:js|mjs|cjs)$/u.test(path)) continue
+      if (!path.endsWith('.js') && !path.endsWith('.mjs') && !path.endsWith('.cjs')) continue
       scanned += 1
       let source = readFileSync(path, 'utf8')
       let changed = false
@@ -331,7 +362,7 @@ function patchGatewayCloseLog(modules: string): void {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name)
       if (entry.isDirectory()) { visit(path); continue }
-      if (!entry.isFile() || !path.includes('dsh-api-gateway') || !path.endsWith('client.browser.js')) continue
+      if (!entry.isFile() || !path.includes('dsh-api-gateway') || !path.endsWith('.js')) continue
       const source = readFileSync(path, 'utf8')
       const probe = /const closed = \(\) => \{\s*(socket\.removeEventListener\("open", opened\);)/
       if (source.match(probe) === null) continue
@@ -363,6 +394,7 @@ function patchOfficeEngineProbe(modules: string): void {`,
       patchConnectionNetworkWatch(join(DSH_OUTPUT_ROOT, 'node_modules'))
       patchGatewayHeartbeat(join(DSH_OUTPUT_ROOT, 'node_modules'))
       patchGatewayCloseLog(join(DSH_OUTPUT_ROOT, 'node_modules'))
+      patchOfficeKitCompletenessProbe(join(DSH_OUTPUT_ROOT, 'node_modules'))
     })`,
       },
     ],
