@@ -479,12 +479,12 @@ function patchOfficeEngineProbe(modules: string): void {`,
     edits: [
       {
         why: 'retention only understands the published macOS/Windows targets',
-        find: `  const target = resolveDesktopBuildTarget(env)
-  const windows = target === 'win-x64'`,
-        replace: `  const target = resolveDesktopBuildTarget(env)
-  // The Linux community build publishes no update feed, so it has nothing to retain.
+        find: `  const windows = target === 'win-x64'
+  const platform = windows ? 'win32' : 'darwin'`,
+        replace: `  // The Linux community build publishes no update feed, so it has nothing to retain.
   if (target === 'linux-arm64') throw new Error('desktop retention: linux-arm64 has no updater release to retain')
-  const windows = target === 'win-x64'`,
+  const windows = target === 'win-x64'
+  const platform = windows ? 'win32' : 'darwin'`,
       },
     ],
   },
