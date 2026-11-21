@@ -249,44 +249,50 @@ function manifestVersion(path: string, subject: string): string {`,
  * @param modules - Materialized production node_modules directory.
  */
 function patchConnectionNetworkWatch(modules: string): void {
-  let patched = 0
+  let scanned = 0
+  let offlinePatched = 0
+  let filesTouched = 0
   const visit = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name)
       if (entry.isDirectory()) { visit(path); continue }
-      if (!entry.isFile() || !path.includes('dsh-client-connection') || !path.endsWith('client.browser.js')) continue
+      if (!entry.isFile() || !path.includes('dsh-client-connection')) continue
+      if (!/\.(?:js|mjs|cjs)$/u.test(path)) continue
+      scanned += 1
       let source = readFileSync(path, 'utf8')
-      const probe = 'browser.addEventListener("offline", offline);'
-      if (source.split(probe).length - 1 !== 1) continue
-      source = source.replace(probe, 'browser.addEventListener("offline", () => {});')
-      // Diagnostic: report why a generation ended (connection close reason or handshake error).
+      let changed = false
+      for (const probe of ['browser.addEventListener("offline", offline);', "browser.addEventListener('offline', offline);"]) {
+        if (source.split(probe).length - 1 === 1) {
+          source = source.replace(probe, probe.replace(', offline);', ', () => {});'))
+          offlinePatched += 1
+          changed = true
+        }
+      }
       const retryProbe = /(\\n[\\t ]+)await failed;/
       if (source.match(retryProbe) !== null) {
         source = source.replace(retryProbe, '$1await failed;\\n$1const reason = ac.signal.reason;\\n$1console.error("[connection] generation ended:", reason && (reason.name || reason.message) ? String(reason.name) + ": " + String(reason.message) + " code=" + String(reason.code) : String(reason));')
+        changed = true
       }
-      // Diagnostic: the race rejection carries the real stream failure, before settle() overwrites the signal reason.
       const failProbe = /\} catch \(error\) \{\s*if \(!ac\.signal\.aborted\) ac\.abort\(error\);\s*\}/
       if (source.match(failProbe) !== null) {
         source = source.replace(failProbe, '} catch (error) {\\n\\t\\t\\t\\t\\t\\tconsole.error("[connection] generation failed:", error && (error.name || error.message) ? String(error.name) + ": " + String(error.message) : String(error), error && error.cause ? "cause=" + String(error.cause) : "");\\n\\t\\t\\t\\t\\t\\tif (!ac.signal.aborted) ac.abort(error);\\n\\t\\t\\t\\t\\t}')
+        changed = true
       }
-      // Diagnostic: print the real failure the source promise rejected with.
       const lostProbe = 'rejectSourceLost(failure);'
       if (source.split(lostProbe).length - 1 === 1) {
         source = source.replace(lostProbe, 'rejectSourceLost(failure);\\n\\t\\t\\t\\t\\t\\tconsole.error("[connection] source lost:", failure && (failure.name || failure.message) ? String(failure.name) + ": " + String(failure.message) : String(failure), failure && failure.cause ? "cause=" + String(failure.cause) : "");')
+        changed = true
       }
-      // Diagnostic: a bare AbortError means the owner was released; print the caller stack.
-      // Older duplicate bundles may not carry this helper, so tracing stays optional.
       const releaseProbe = /(const releaseOwner = \(current\) => \{\s*if \(owner !== current\) return;)/
       if (source.match(releaseProbe) !== null) {
         source = source.replace(releaseProbe, '$1\\n\\t\\t\\t\\tconsole.trace("[connection] owner released");')
+        changed = true
       }
-      writeFileSync(path, source)
-      patched += 1
+      if (changed) { writeFileSync(path, source); filesTouched += 1 }
     }
   }
   visit(modules)
-  if (patched === 0) throw new Error('desktop runtime: no connection offline listener found to patch')
-  console.log('desktop runtime: neutralized ' + String(patched) + ' browser offline listener(s)')
+  console.log('desktop runtime: connection bundles scanned=' + String(scanned) + ' offline=' + String(offlinePatched) + ' touched=' + String(filesTouched))
 }
 
 /**
